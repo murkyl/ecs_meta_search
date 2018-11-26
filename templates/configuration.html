@@ -1,0 +1,67 @@
+{% extends 'base_1.html' %}
+{% block header %}
+  <h1>{% block title %}Configure{% endblock %}</h1>
+{% endblock %}
+{% block content %}
+  <div>
+    <form method="post" id="service">
+      {%- if connect_form.errors -%}
+      <div>
+        <span>Errors were found in your input:</span>
+        {% for field, errors in connect_form.errors.iteritems() %}
+        <div class="alert alert-error">
+            {{ connect_form[field].label }}: {{ ', '.join(errors) }}
+        </div>
+        {% endfor %}
+      </div>
+      {%- endif %}
+      <div>
+        {{ connect_form.ecs_username.label }}
+        {{ connect_form.ecs_username(size=48) }}
+      </div>
+      <div>
+        {{ connect_form.ecs_password.label }}
+        {{ connect_form.ecs_password(hide_value=False, size=48) }}
+      </div>
+      <div>
+        {{ connect_form.ecs_endpoint.label }}
+        {{ connect_form.ecs_endpoint(size=64) }}
+      </div>
+      <div>
+        {{ connect_form.ecs_replication_group.label }}
+        {{ connect_form.ecs_replication_group(size=80) }}
+      </div>
+      <div>
+        {{ connect_form.submit() }}
+      </div>
+      {{ connect_form.type }}
+      {{ connect_form.csrf_token }}
+    </form>
+  </div>
+  <div>
+    <form method="post" id="bucket">
+      {%- if bucket_form.errors -%}
+      <div>
+        {% for field, errors in bucket_form.errors.iteritems() %}
+        <div class="alert alert-error">
+            {{ bucket_form[field].label }}: {{ ', '.join(errors) }}
+        </div>
+        {% endfor %}
+      </div>
+      {%- endif %}
+      {%- if not bucket_form.bucket.choices -%}
+      <span>Connect to ECS container before selecting a bucket for metadata search.</span>
+      {%- else -%}
+      <div>
+        {{ bucket_form.bucket.label }}
+        {{ bucket_form.bucket }}
+      </div>
+      <div>
+        {{ bucket_form.submit() }}
+      </div>
+      {{ bucket_form.type }}
+      {{ bucket_form.csrf_token }}
+      {%- endif -%}
+    </form>
+  </div>
+{% endblock %}

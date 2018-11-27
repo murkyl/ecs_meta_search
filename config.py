@@ -6,7 +6,6 @@ class Config(object):
   ACCESS_KEY = None
   TOKEN = None
   ENDPOINT = None
-  BUCKET_LIST = None
   BUCKET = None
   CLIENT = None
   VISIBLE_PASSWORD = True

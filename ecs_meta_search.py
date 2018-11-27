@@ -2,6 +2,8 @@ import sys
 import os
 import inspect
 import json
+import logging
+import logging.config
 # Insert our lib directory into the module search path
 current_file = inspect.getfile(inspect.currentframe())
 base_path = os.path.dirname(os.path.abspath(current_file))
@@ -27,6 +29,23 @@ import boto3
 if (sys.version_info.major == 2 and sys.version_info.minor < 9):
   print("Python version is < 2.7.9. You will get warnings about SNI (Server Name Indication) when usig HTTPS connections")
 
+# Global variables
+# Setup logging here before the Flask app is instantiated
+logging.config.dictConfig({
+  'version': 1,
+  'formatters': {'default': {
+    'format': '[%(asctime)s] %(levelname)s in %(module)s: %(message)s',
+  }},
+  'handlers': {'wsgi': {
+    'class': 'logging.StreamHandler',
+    'stream': 'ext://flask.logging.wsgi_errors_stream',
+    'formatter': 'default'
+  }},
+  'root': {
+    'level': 'DEBUG',
+    'handlers': ['wsgi']
+  }
+})
 
 app = Flask(__name__, instance_relative_config=True)
 app.config.from_object('config.Config')
@@ -53,13 +72,20 @@ class BucketForm(FlaskForm):
   type = HiddenField('type', default='bucket')
   submit = SubmitField('Select bucket')
 
-def connect_ecs():
+def connect_ecs(bucket=None):
   # Reset our connection and bucket variables
   app.config.update(
     CLIENT = None,
-    BUCKET_LIST = None,
-    BUCKET = None,
+    BUCKET_LIST = {},
+    BUCKET_MAP = {},
+    BUCKET = bucket,
   )
+  if not (app.config['ACCESS_ID'] and app.config['ACCESS_KEY']
+          and app.config['TOKEN'] and app.config['ENDPOINT']):
+    # Do not attempt a connect unless all 4 values are available
+    app.logger.info('Cannot connect to ECS. Not all variables defined')
+    return
+  app.logger.info('Trying to connect to ECS instance at: %s'%app.config['ENDPOINT'])
   app.config['CLIENT'] = boto3.client(
     's3',
     aws_access_key_id=app.config['ACCESS_ID'],
@@ -70,12 +96,20 @@ def connect_ecs():
   if app.config['CLIENT']:
     try:
       app.config['BUCKET_LIST'] = app.config['CLIENT'].list_buckets()
+      for bucket in app.config['BUCKET_LIST'].get('Buckets', []):
+        app.config['BUCKET_MAP'][bucket['Name']] = bucket
+      if app.config['BUCKET']:
+        if app.config['BUCKET'] not in app.config['BUCKET_MAP'].keys():
+          app.config['BUCKET'] = None
+          flash('Invalid bucket name for ECS endpoint: %s'%app.config['ENDPOINT'], 'error')
     except Exception as e:
+      app.logger.exception(e)
       app.config['CLIENT'] = None
   
 @app.route("/", methods=['GET'])
 def home():
   errors = None
+  app.logger.info('Status of client: %s'%app.config['CLIENT'])
   return render_template('home.html', errors=errors)
   
 @app.route("/search", methods=['GET', 'POST'])
@@ -89,11 +123,10 @@ def configuration():
   buckets = []
   connect_form = ConnectForm()
   bucket_form = BucketForm()
-  print("Status of client: %s"%app.config['CLIENT'])
-  
+  app.logger.info('Status of client: %s'%app.config['CLIENT'])
+  app.logger.debug('Request args: %s'%request.args)
+
   if request.method == 'POST':
-    print("Request args: %s"%request.args)
-    print("Form: %s"%request.form)
     if request.form.get('type') == 'connect':
       if connect_form.validate_on_submit():
         app.config.update(
@@ -109,21 +142,21 @@ def configuration():
         errors = ['Could not connect using provided ECS credentials. Please check the values and try again.']
         flash('Could not connect using provided ECS credentials. Please check the values and try again.', 'error')
     elif request.form.get('type') == 'bucket':
-      buckets = sorted(app.config['BUCKET_LIST'].get('Buckets', None), key=lambda x: x.get('Name'))
-      bucket_form.bucket.choices = [(x.get('Name'), x.get('Name')) for x in buckets]
+      bucket_form.bucket.choices = [(x, x) for x in sorted(app.config['BUCKET_MAP'].keys())]
       if bucket_form.validate_on_submit():
         app.config['BUCKET'] = request.form.get('bucket')
         return redirect("/config")
       flash('Unknown error encountered using selected bucket: %s'%request.form.get('bucket'), 'error')
     else:
-      print("Got error")
+      app.logger.critical('Unknown form type received: %s'%request.form.get('type'))
+      flash('Unknown form type received: %s'%request.form.get('type'), 'error')
   elif request.method == 'GET':
     if app.config['CLIENT']:
-      buckets = sorted(app.config['BUCKET_LIST'].get('Buckets', None), key=lambda x: x.get('Name'))
-      bucket_form.bucket.choices = [(x.get('Name'), x.get('Name')) for x in buckets]
-      print("Bucket value: %s"%app.config['BUCKET'])
+      bucket_form.bucket.choices = [(x, x) for x in sorted(app.config['BUCKET_MAP'].keys())]
+      app.logger.debug('Bucket selected: %s'%app.config['BUCKET'])
     
   return render_template('configuration.html', errors=errors, connect_form=connect_form, bucket_form=bucket_form)
   
 if __name__ == "__main__":
+  connect_ecs(app.config['BUCKET'])
   app.run(debug=True)

@@ -4,10 +4,13 @@ import inspect
 import json
 import logging
 import logging.config
+
 # Insert our lib directory into the module search path
 current_file = inspect.getfile(inspect.currentframe())
 base_path = os.path.dirname(os.path.abspath(current_file))
 sys.path.insert(0, os.path.join(base_path, 'lib'))
+import xmltodict
+import requests
 from flask import Flask
 from flask import render_template
 from flask import request
@@ -23,11 +26,16 @@ from wtforms import HiddenField
 from wtforms.fields.html5 import URLField
 from wtforms.widgets.core import PasswordInput
 from wtforms.validators import DataRequired
-import boto3
+# Monkey patch awsauth to add headers used by ECS (relies on 'requests' module)
+from awsauth.awsauth import S3Auth
+for param in ['searchmetadata', 'query']:
+  if param not in S3Auth.special_params:
+    S3Auth.special_params.append(param)
 
 
 if (sys.version_info.major == 2 and sys.version_info.minor < 9):
   print("Python version is < 2.7.9. You will get warnings about SNI (Server Name Indication) when usig HTTPS connections")
+
 
 # Global variables
 # Setup logging here before the Flask app is instantiated
@@ -46,6 +54,7 @@ logging.config.dictConfig({
     'handlers': ['wsgi']
   }
 })
+
 
 app = Flask(__name__, instance_relative_config=True)
 app.config.from_object('config.Config')
@@ -86,20 +95,23 @@ def connect_ecs(bucket=None):
     app.logger.info('Cannot connect to ECS. Not all variables defined')
     return
   app.logger.info('Trying to connect to ECS instance at: %s'%app.config['ENDPOINT'])
-  app.config['CLIENT'] = boto3.client(
-    's3',
-    aws_access_key_id=app.config['ACCESS_ID'],
-    aws_secret_access_key=app.config['ACCESS_KEY'],
-    aws_session_token=app.config['TOKEN'],
-    endpoint_url=app.config['ENDPOINT'],
-  )
-  if app.config['CLIENT']:
+  client = requests.Session()
+  if client:
     try:
-      app.config['BUCKET_LIST'] = app.config['CLIENT'].list_buckets()
-      for bucket in app.config['BUCKET_LIST'].get('Buckets', []):
-        app.config['BUCKET_MAP'][bucket['Name']] = bucket
-      if app.config['BUCKET']:
-        if app.config['BUCKET'] not in app.config['BUCKET_MAP'].keys():
+      app.config['CLIENT'] = client
+      client.auth = S3Auth(
+          app.config['ACCESS_ID'],
+          app.config['ACCESS_KEY'],
+          service_url=app.config['ENDPOINT']
+      )
+      resp = client.get(app.config['ENDPOINT'])
+      # TODO: Need to add error handling!
+      if resp.content:
+        resp_dict = xmltodict.parse(resp.content)
+        app.config['BUCKET_LIST'] = resp_dict['ListAllMyBucketsResult']['Buckets']['Bucket']
+        for bucket in app.config['BUCKET_LIST']:
+          app.config['BUCKET_MAP'][bucket['Name']] = bucket
+        if app.config['BUCKET'] and app.config['BUCKET'] not in app.config['BUCKET_MAP'].keys():
           app.config['BUCKET'] = None
           flash('Invalid bucket name for ECS endpoint: %s'%app.config['ENDPOINT'], 'error')
     except Exception as e:
@@ -110,7 +122,18 @@ def connect_ecs(bucket=None):
 def home():
   errors = None
   app.logger.info('Status of client: %s'%app.config['CLIENT'])
-  return render_template('home.html', errors=errors)
+  data = {}
+  client = app.config['CLIENT']
+  if client:
+    resp = client.get(app.config['ENDPOINT'])
+    resp_dict = xmltodict.parse(resp.content)
+    data['all_buckets'] = json.dumps(resp_dict, indent=4, sort_keys=True)
+    
+    resp = client.get(app.config['ENDPOINT'] + '/' + app.config['BUCKET'], params='searchmetadata')
+    resp_dict = xmltodict.parse(resp.content)
+    data['search'] = json.dumps(resp_dict, indent=4, sort_keys=True)
+      
+  return render_template('home.html', errors=errors, raw=data)
   
 @app.route("/search", methods=['GET', 'POST'])
 def search():

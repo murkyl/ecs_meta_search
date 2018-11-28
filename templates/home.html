@@ -5,6 +5,11 @@
 
 {% block content %}
 <div>
-{{ raw }}
+{% for key,value in raw.items() %}
+<h1>{{ key }}</h1>
+<pre>
+{{ value }}
+</pre>
+{% endfor %}
 </div>
 {% endblock %}

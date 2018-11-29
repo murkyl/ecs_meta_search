@@ -12,20 +12,25 @@
 {% else %}
   <div id="metasearch">
     <h2>Search</h2>
+    {% if form.tags.choices %}
     <form method="post" id="search">
       {%- if form.errors -%}
       <div>
         <span>Errors were found in your input:</span>
-        {% for field, errors in connect_form.errors.iteritems() %}
+        {% for field, errors in form.errors.iteritems() %}
         <div class="alert alert-error">
-            {{ connect_form[field].label }}: {{ ', '.join(errors) }}
+            {{ form[field].label }}: {{ ', '.join(errors) }}
         </div>
         {% endfor %}
       </div>
       {%- endif %}
       <div>
-        {{ form.text_search.label }}
-        {{ form.text_search(size=48) }}
+        {{ form.search_term.label }}
+        {{ form.search_term(size=48) }}
+      </div>
+      <div>
+        {{ form.tags.label }}
+        {{ form.tags }}
       </div>
       <div>
         {{ form.submit() }}
@@ -33,22 +38,35 @@
       {{ form.type }}
       {{ form.csrf_token }}
     </form>
+    {% else %}
+    <span>Search is not availale for this bucket</span>
+    {% endif %}
   </div>
   <div id="status">
     <h2>Status</h2>
     <ul>
       <li>Connected to: {{ config['ENDPOINT'] }} </li>
       <li>User: {{ config['ACCESS_ID'] }}</li>
-      <li>Bucket: {{ config['BUCKET'] }}</li>
+      <li>Slected bucket: {{ config['BUCKET'] }}</li>
       <li>Available buckets: {{ config['BUCKET_LIST']|length }}</li>
-      <li>Searchable metadata tags
+      <li>Search enabled buckets
         <ul>
-          {% for tag in config['SEARCH_TAGS'] %}
-          <li>{{ tag }}</li>
+          {% for bucket in config['SEARCHABLE_BUCKETS'] %}
+          <li>{{ bucket }}</li>
           {% endfor %}
         </ul>
       </li>
     </ul>
+  </div>
+  <div id="search_results">
+    <h2>Search results</h2>
+    <div>
+    {% if search_results %}
+    <pre>
+    {{ search_results }}
+    </pre>
+    {% endif %}
+    </div>
   </div>
 {% endif %}
 {% endblock %}

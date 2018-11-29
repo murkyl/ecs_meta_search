@@ -2,6 +2,7 @@ import sys
 import os
 import inspect
 import json
+import urllib
 import logging
 import logging.config
 
@@ -24,9 +25,12 @@ from wtforms import BooleanField
 from wtforms import SubmitField
 from wtforms import SelectField
 from wtforms import HiddenField
+from wtforms import SelectMultipleField
+from wtforms import widgets
 from wtforms.fields.html5 import URLField
 from wtforms.widgets.core import PasswordInput
 from wtforms.validators import DataRequired
+from wtforms.validators import InputRequired
 # Monkey patch awsauth to add headers used by ECS (relies on 'requests' module)
 from awsauth.awsauth import S3Auth
 for param in ['searchmetadata', 'query']:
@@ -67,6 +71,10 @@ app.config.from_envvar('EMC_META_SEARCH_CONFIG', silent=True)
 class VisiblePasswordField(PasswordField):
   widget = PasswordInput(hide_value= False)
 
+class MultiCheckboxField(SelectMultipleField):
+  widget = widgets.ListWidget(prefix_label=False)
+  option_widget = widgets.CheckboxInput()
+    
 class ConnectForm(FlaskForm):
   ecs_username = StringField('ECS Username', validators=[DataRequired()], default=lambda: app.config['ACCESS_ID'])
   if app.config['VISIBLE_PASSWORD']:
@@ -84,9 +92,34 @@ class BucketForm(FlaskForm):
   submit = SubmitField('Select bucket')
   
 class SearchForm(FlaskForm):
-  text_search = StringField('Search')
+  search_term = StringField('Search', validators=[DataRequired(message='Please enter some text to search.')])
+  tags = MultiCheckboxField('Search in tags', validators=[InputRequired(message='At least 1 metadata tag type must be selected.')])
   type = HiddenField('type', default='search')
   submit = SubmitField('Search')
+
+def change_bucket(client, selected_bucket):
+  app.config.update(
+    SEARCH_ENABLED = False,
+    SEARCH_TAGS = [],
+    SEARCHABLE_BUCKETS = [],
+  )
+  # Look at all the buckets and find which ones have metadata search
+  # enabled. During the search when a match is found to our currently
+  # selected bucket, pull all the metadata search tags for that bucket and
+  # save that our our SEARCH_TAGS list for display as checkboxes later
+  for bucket in app.config['BUCKET_MAP'].keys():
+    resp = client.get(urljoin(app.config['ENDPOINT'], bucket), params='searchmetadata')
+    if resp.content:
+      resp_dict = xmltodict.parse(resp.content)
+      if 'Error' in resp_dict:
+        continue
+      search_enabled = resp_dict['MetadataSearchList']['MetadataSearchEnabled'] == 'true'
+      if search_enabled:
+        app.config['SEARCHABLE_BUCKETS'].append(bucket)
+      if bucket == app.config['BUCKET']:
+        if search_enabled:
+          app.config['SEARCH_ENABLED'] = search_enabled
+          app.config['SEARCH_TAGS'] = [x['Name'].replace(META_TAG_PREFIX, '') for x in resp_dict['MetadataSearchList']['IndexableKeys']['Key']]
 
 def connect_ecs(bucket=None):
   # Reset our connection and bucket variables
@@ -97,6 +130,7 @@ def connect_ecs(bucket=None):
     BUCKET = bucket,
     SEARCH_ENABLED = False,
     SEARCH_TAGS = [],
+    SEARCHABLE_BUCKETS = [],
   )
   if not (app.config['ACCESS_ID'] and app.config['ACCESS_KEY']
           and app.config['TOKEN'] and app.config['ENDPOINT']):
@@ -126,15 +160,8 @@ def connect_ecs(bucket=None):
         if app.config['BUCKET'] and app.config['BUCKET'] not in app.config['BUCKET_MAP'].keys():
           app.config['BUCKET'] = None
           flash('Invalid bucket name for ECS endpoint: %s'%app.config['ENDPOINT'], 'error')
-      # Get all indexed metadata tags
-      resp = client.get(urljoin(app.config['ENDPOINT'], app.config['BUCKET']), params='searchmetadata')
-      if resp.content:
-        resp_dict = xmltodict.parse(resp.content)
-        app.config['SEARCH_ENABLED'] = resp_dict['MetadataSearchList']['MetadataSearchEnabled'] == 'true'
-        if app.config['SEARCH_ENABLED']:
-          app.config['SEARCH_TAGS'] = [x['Name'].replace(META_TAG_PREFIX, '') for x in resp_dict['MetadataSearchList']['IndexableKeys']['Key']]
-        else:
-          app.config['SEARCH_TAGS'] = []
+        change_bucket(client, app.config['BUCKET'])
+
     except Exception as e:
       app.logger.exception(e)
       app.config['CLIENT'] = None
@@ -143,19 +170,44 @@ def connect_ecs(bucket=None):
 def home():
   errors = None
   data = {}
+  search_results = None
   client = app.config['CLIENT']
   search_form = SearchForm()
+  if app.config['SEARCH_TAGS']:
+    search_form.tags.choices = [(x, x) for x in app.config['SEARCH_TAGS']]
+    search_form.tags.default = True
   
   app.logger.info('Status of client: %s'%client)
   app.logger.debug('Request args: %s'%request.args)
   if request.method == 'POST':
-    pass
+    if request.form.get('type') == 'search':
+      if search_form.validate_on_submit():
+        search_tags = request.form.getlist('tags')
+        search_term = request.form.get('search_term')
+        terms = ['%s%s==%s'%(META_TAG_PREFIX, x, search_term) for x in search_tags]
+        app.logger.debug("Term list: %s"%terms)
+        query_string = ' or '.join(terms)
+        app.logger.debug("Full unescaped search string: %s"%query_string)
+        escaped_query = urllib.quote(query_string, '=')
+        app.logger.debug("Escaped search string: %s"%escaped_query)
+        # Run actual search
+        resp = client.get(urljoin(app.config['ENDPOINT'], app.config['BUCKET']), params='query=%s'%escaped_query)
+        resp_dict = xmltodict.parse(resp.content)
+        if 'Error' in resp_dict:
+          app.logger.error('URL used in invalid GET request: %s'%resp.url)
+          err_string = json.dumps(resp_dict, indent=4, sort_keys=True)
+          flash('Invalid search request:\n%s'%err_string, 'error')
+          flash('URL used in invalid search request:\n%s'%resp.url, 'error')
+        else:
+          resp_dict = xmltodict.parse(resp.content)
+          results = resp_dict['BucketQueryResult']
+          search_results = json.dumps(results, indent=4, sort_keys=True)
   elif request.method == 'GET':
     pass
   else:
     app.logger.error('Unhandled request method received: %s'%request.method)
       
-  return render_template('home.html', errors=errors, form=search_form)
+  return render_template('home.html', errors=errors, form=search_form, search_results=search_results)
   
 @app.route("/config", methods=['GET', 'POST'])
 def configuration():
@@ -186,6 +238,8 @@ def configuration():
       bucket_form.bucket.choices = [(x, x) for x in sorted(app.config['BUCKET_MAP'].keys())]
       if bucket_form.validate_on_submit():
         app.config['BUCKET'] = request.form.get('bucket')
+        change_bucket(client, app.config['BUCKET'])
+        flash('Connected to bucket: %s successfully'%app.config['BUCKET'], 'info')
         return redirect("/config")
       flash('Unknown error encountered using selected bucket: %s'%request.form.get('bucket'), 'error')
     else:
@@ -195,7 +249,6 @@ def configuration():
     if client:
       bucket_form.bucket.choices = [(x, x) for x in sorted(app.config['BUCKET_MAP'].keys())]
       app.logger.debug('Bucket selected: %s'%app.config['BUCKET'])
-    
   return render_template('configuration.html', errors=errors, connect_form=connect_form, bucket_form=bucket_form)
   
 @app.route("/debug", methods=['GET', 'POST'])
@@ -225,6 +278,7 @@ def debug():
     # Command to search the bucket for an object with a meta tag of showname and a value of team
     resp = client.get(urljoin(app.config['ENDPOINT'], app.config['BUCKET']), params={'query': 'x-amz-meta-showname==team'})
     resp_dict = xmltodict.parse(resp.content)
+    data['search_url'] = resp.url
     data['search_result'] = json.dumps(resp_dict, indent=4, sort_keys=True)
   return render_template('debug.html', errors=errors, data=data)
   

@@ -11,6 +11,7 @@ base_path = os.path.dirname(os.path.abspath(current_file))
 sys.path.insert(0, os.path.join(base_path, 'lib'))
 import xmltodict
 import requests
+from requests.compat import urljoin
 from flask import Flask
 from flask import render_template
 from flask import request
@@ -56,6 +57,7 @@ logging.config.dictConfig({
 })
 
 
+META_TAG_PREFIX = 'x-amz-meta-'
 app = Flask(__name__, instance_relative_config=True)
 app.config.from_object('config.Config')
 app.config.from_pyfile('application.cfg', silent=True)
@@ -80,6 +82,11 @@ class BucketForm(FlaskForm):
   bucket = SelectField('Bucket', validators=[DataRequired()], default=lambda: app.config['BUCKET'])
   type = HiddenField('type', default='bucket')
   submit = SubmitField('Select bucket')
+  
+class SearchForm(FlaskForm):
+  text_search = StringField('Search')
+  type = HiddenField('type', default='search')
+  submit = SubmitField('Search')
 
 def connect_ecs(bucket=None):
   # Reset our connection and bucket variables
@@ -88,6 +95,8 @@ def connect_ecs(bucket=None):
     BUCKET_LIST = {},
     BUCKET_MAP = {},
     BUCKET = bucket,
+    SEARCH_ENABLED = False,
+    SEARCH_TAGS = [],
   )
   if not (app.config['ACCESS_ID'] and app.config['ACCESS_KEY']
           and app.config['TOKEN'] and app.config['ENDPOINT']):
@@ -104,8 +113,11 @@ def connect_ecs(bucket=None):
           app.config['ACCESS_KEY'],
           service_url=app.config['ENDPOINT']
       )
+      # Get data for all buckets
       resp = client.get(app.config['ENDPOINT'])
-      # TODO: Need to add error handling!
+      # TODO: Need to add error handling for all 'GET' operations as well as
+      # the responses. Right now we assume everything parses correctly and the
+      # XML response is well formed. This is a bad assumption to make.
       if resp.content:
         resp_dict = xmltodict.parse(resp.content)
         app.config['BUCKET_LIST'] = resp_dict['ListAllMyBucketsResult']['Buckets']['Bucket']
@@ -114,39 +126,45 @@ def connect_ecs(bucket=None):
         if app.config['BUCKET'] and app.config['BUCKET'] not in app.config['BUCKET_MAP'].keys():
           app.config['BUCKET'] = None
           flash('Invalid bucket name for ECS endpoint: %s'%app.config['ENDPOINT'], 'error')
+      # Get all indexed metadata tags
+      resp = client.get(urljoin(app.config['ENDPOINT'], app.config['BUCKET']), params='searchmetadata')
+      if resp.content:
+        resp_dict = xmltodict.parse(resp.content)
+        app.config['SEARCH_ENABLED'] = resp_dict['MetadataSearchList']['MetadataSearchEnabled'] == 'true'
+        if app.config['SEARCH_ENABLED']:
+          app.config['SEARCH_TAGS'] = [x['Name'].replace(META_TAG_PREFIX, '') for x in resp_dict['MetadataSearchList']['IndexableKeys']['Key']]
+        else:
+          app.config['SEARCH_TAGS'] = []
     except Exception as e:
       app.logger.exception(e)
       app.config['CLIENT'] = None
   
-@app.route("/", methods=['GET'])
+@app.route("/", methods=['GET', 'POST'])
 def home():
   errors = None
-  app.logger.info('Status of client: %s'%app.config['CLIENT'])
   data = {}
   client = app.config['CLIENT']
-  if client:
-    resp = client.get(app.config['ENDPOINT'])
-    resp_dict = xmltodict.parse(resp.content)
-    data['all_buckets'] = json.dumps(resp_dict, indent=4, sort_keys=True)
-    
-    resp = client.get(app.config['ENDPOINT'] + '/' + app.config['BUCKET'], params='searchmetadata')
-    resp_dict = xmltodict.parse(resp.content)
-    data['search'] = json.dumps(resp_dict, indent=4, sort_keys=True)
-      
-  return render_template('home.html', errors=errors, raw=data)
+  search_form = SearchForm()
   
-@app.route("/search", methods=['GET', 'POST'])
-def search():
-  errors = None
-  return render_template('search.html', errors=errors)
+  app.logger.info('Status of client: %s'%client)
+  app.logger.debug('Request args: %s'%request.args)
+  if request.method == 'POST':
+    pass
+  elif request.method == 'GET':
+    pass
+  else:
+    app.logger.error('Unhandled request method received: %s'%request.method)
+      
+  return render_template('home.html', errors=errors, form=search_form)
   
 @app.route("/config", methods=['GET', 'POST'])
 def configuration():
   errors = None
   buckets = []
+  client = app.config['CLIENT']
   connect_form = ConnectForm()
   bucket_form = BucketForm()
-  app.logger.info('Status of client: %s'%app.config['CLIENT'])
+  app.logger.info('Status of client: %s'%client)
   app.logger.debug('Request args: %s'%request.args)
 
   if request.method == 'POST':
@@ -160,7 +178,7 @@ def configuration():
         )
         connect_ecs()
         # Check if client is valid or the connect succeeded. If it did not, render an error
-        if app.config['CLIENT']:
+        if client:
           return redirect("/config")
         errors = ['Could not connect using provided ECS credentials. Please check the values and try again.']
         flash('Could not connect using provided ECS credentials. Please check the values and try again.', 'error')
@@ -174,11 +192,41 @@ def configuration():
       app.logger.critical('Unknown form type received: %s'%request.form.get('type'))
       flash('Unknown form type received: %s'%request.form.get('type'), 'error')
   elif request.method == 'GET':
-    if app.config['CLIENT']:
+    if client:
       bucket_form.bucket.choices = [(x, x) for x in sorted(app.config['BUCKET_MAP'].keys())]
       app.logger.debug('Bucket selected: %s'%app.config['BUCKET'])
     
   return render_template('configuration.html', errors=errors, connect_form=connect_form, bucket_form=bucket_form)
+  
+@app.route("/debug", methods=['GET', 'POST'])
+def debug():
+  errors = None
+  app.logger.info('Status of client: %s'%app.config['CLIENT'])
+  data = {}
+  client = app.config['CLIENT']
+  if client:
+    resp = client.get(app.config['ENDPOINT'])
+    resp_dict = xmltodict.parse(resp.content)
+    data['all_buckets'] = json.dumps(resp_dict, indent=4, sort_keys=True)
+    
+  if client:
+    # Look at all the buckets available
+    resp = client.get(app.config['ENDPOINT'])
+    resp_dict = xmltodict.parse(resp.content)
+    data['all_buckets'] = json.dumps(resp_dict, indent=4, sort_keys=True)
+    # Alter the MaxKey field and list buckets
+    resp = client.get(urljoin(app.config['ENDPOINT'], app.config['BUCKET']), params={'max-keys': 2})
+    resp_dict = xmltodict.parse(resp.content)
+    data['bucket_detail'] = json.dumps(resp_dict, indent=4, sort_keys=True)
+    # Verify MD Search is enabled for the bucket
+    resp = client.get(urljoin(app.config['ENDPOINT'], app.config['BUCKET']), params='searchmetadata')
+    resp_dict = xmltodict.parse(resp.content)
+    data['meta_search_status'] = json.dumps(resp_dict, indent=4, sort_keys=True)
+    # Command to search the bucket for an object with a meta tag of showname and a value of team
+    resp = client.get(urljoin(app.config['ENDPOINT'], app.config['BUCKET']), params={'query': 'x-amz-meta-showname==team'})
+    resp_dict = xmltodict.parse(resp.content)
+    data['search_result'] = json.dumps(resp_dict, indent=4, sort_keys=True)
+  return render_template('debug.html', errors=errors, data=data)
   
 if __name__ == "__main__":
   connect_ecs(app.config['BUCKET'])

@@ -1,0 +1,10 @@
+body {
+  font-family: Arial;
+}
+#metasearch {
+  float: left;
+}
+#status {
+  float: right;
+  width: 30%;
+}

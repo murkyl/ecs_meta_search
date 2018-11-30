@@ -5,6 +5,14 @@ body {
 
 nav {
   background-color: black;
+  height: 85px;
+  width: 100%;
+  margin: 0 0 20px 0;
+  padding: 0;
+  position: fixed ! important;
+  top: 0;
+  overflow: hidden;
+  z-index: 100;
 }
 
 nav h1, header h1 {
@@ -19,7 +27,7 @@ nav h1 {
 }
 
 section {
-  margin-bottom: 120px;
+  margin: 85px 0 120px 0;
 }
 
 footer {
@@ -31,7 +39,7 @@ footer {
   margin: 20px 0 0 0;
   padding: 0;
   position: fixed ! important;
-  bottom: 0px;
+  bottom: 0;
   overflow: hidden;
   z-index: 100;
 }
@@ -133,7 +141,7 @@ ul.indent1 li{
 
 #navigation li {
   float: left;
-  padding: .4em 1em;
+  padding: 8px 16px;
 }
 
 #navigation li a {
@@ -145,6 +153,12 @@ ul.indent1 li{
   color: white;
   text-decoration: None;
   background-color: gray;
+}
+
+#navigation li:hover {
+  color: white;
+  text-decoration: None;
+  background-color: #afbbce;
 }
 
 #metasearch {

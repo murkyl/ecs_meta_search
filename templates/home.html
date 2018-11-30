@@ -41,10 +41,10 @@
     <ul>
       <li>Connected to: {{ config['ENDPOINT'] }} </li>
       <li>User: {{ config['ACCESS_ID'] }}</li>
-      <li>Slected bucket: {{ config['BUCKET'] }}</li>
+      <li>Selected bucket: {{ config['BUCKET'] }}</li>
       <li>Available buckets: {{ config['BUCKET_LIST']|length }}</li>
-      <li>Search enabled buckets
-        <ul>
+      <li>Search enabled buckets:
+        <ul class="indent1">
           {%- for bucket in config['SEARCHABLE_BUCKETS'] %}
           <li>{{ bucket }}</li>
           {%- endfor %}
@@ -64,16 +64,20 @@
           <th class="tag_{{ header }}">{{ header }}</th>
           {%- endfor %}
         </tr>
-        {%- set row_classes = ['item'] + config['SEARCH_TAGS'] %}
+        {%- set row_classes = ['dl_link', 'item'] + config['SEARCH_TAGS'] %}
         {%- for row in search_results %}
         <tr class={{ loop.cycle('rs1', 'rs1', 'rs2', 'rs2') }}>
-          <td class="download">Download</td>
-          {% for col in row %}
+          {%- for col in row %}
+          {%- if loop.index0 == 0 %}
+          <td class="{{ row_classes[loop.index0] }}"><a href="{{ col if col }}" class="dl_link" target="_blank" rel="external" download>Download</a></td>
+          {%- else %}
           <td class="tag_{{ row_classes[loop.index0] }}">{{ col if col }}</td>
+          {%- endif %}
           {% endfor %}
         </tr>
         {%- endfor %}
       </table>
+      <span class="expiration_time">Download links expire at: {{ expiration }}</span>
     {%- else %}
       <span>No search reasults</span>
     {%- endif %}

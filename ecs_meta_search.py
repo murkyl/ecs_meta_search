@@ -3,6 +3,7 @@ import os
 import inspect
 import json
 import urllib
+import datetime
 import logging
 import logging.config
 
@@ -36,6 +37,13 @@ from awsauth.awsauth import S3Auth
 for param in ['searchmetadata', 'query']:
   if param not in S3Auth.special_params:
     S3Auth.special_params.append(param)
+from aws_utils import get_signed_url
+
+
+# TODO:
+# Need to add error handling for all 'GET' operations as well as
+#   the responses. Right now we assume everything parses correctly and the
+#   XML response is well formed. This is a bad assumption to make.
 
 
 if (sys.version_info.major == 2 and sys.version_info.minor < 9):
@@ -161,9 +169,6 @@ def connect_ecs(bucket=None):
       )
       # Get data for all buckets
       resp = client.get(app.config['ENDPOINT'])
-      # TODO: Need to add error handling for all 'GET' operations as well as
-      # the responses. Right now we assume everything parses correctly and the
-      # XML response is well formed. This is a bad assumption to make.
       if resp.content:
         resp_dict = xmltodict.parse(resp.content)
         app.config['BUCKET_LIST'] = resp_dict['ListAllMyBucketsResult']['Buckets']['Bucket']
@@ -192,12 +197,24 @@ def do_search(client, form):
   resp_dict = xmltodict.parse(resp.content)
   return(resp_dict)
 
-def search_response_to_table(search_resp):
+def search_response_to_table(search_resp, expiration):
   table = []
   if search_resp['ObjectMatches'] is None:
     return table
+  
   for result in search_resp['ObjectMatches']['object']:
     row = []
+    row.append(
+        get_signed_url(
+          app.config['ENDPOINT'],
+          app.config['BUCKET'],
+          result['objectName'],
+          app.config['ACCESS_ID'],
+          app.config['ACCESS_KEY'],
+          app.config['URL_TYPE'],
+          expiration,
+        )
+    )
     row.append(result['objectName'])
     meta_map = {}
     for entry in result['queryMds']['mdMap']['entry']:
@@ -216,6 +233,7 @@ def home():
   errors = None
   data = {}
   search_results = None
+  expiration = None
   client = app.config['CLIENT']
   search_form = SearchForm()
   if app.config['SEARCH_TAGS']:
@@ -235,14 +253,20 @@ def home():
           flash('URL used in invalid search request:\n%s'%resp.url, 'error')
         else:
           results = resp_dict['BucketQueryResult']
-          search_results = search_response_to_table(results)
-          #search_results = json.dumps(results, indent=4, sort_keys=True)
+          expiration = datetime.datetime.now() + datetime.timedelta(seconds=app.config['URL_EXPIRATION'])
+          search_results = search_response_to_table(results, expiration)
+          expiration = expiration.strftime("%Y-%m-%d %H:%M:%S")
   elif request.method == 'GET':
     # Just render the home page normally for a GET
     pass
   else:
     app.logger.error('Unhandled request method received: %s'%request.method)
-  return render_template('home.html', errors=errors, form=search_form, search_results=search_results)
+  return render_template('home.html',
+      errors=errors,
+      form=search_form,
+      search_results=search_results,
+      expiration=expiration,
+  )
   
 @app.route("/config", methods=['GET', 'POST'])
 def configuration():

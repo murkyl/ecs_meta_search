@@ -1,46 +1,40 @@
 {% extends 'base_1.html' %}
 {% set active_page = 'home' %}
-{% block header %}
-  <h1>{% block title %}Home{% endblock %}</h1>
-{% endblock %}
-
+{% block header %}{% endblock %}
 {% block content %}
-{% if not config['CLIENT'] %}
+{%- if not config['CLIENT'] %}
   <div>
     <p>You are not currently connected to any ECS instance. Please configure the ECS parameters through the <a href="{{ url_for('configuration') }}">Configuration</a> link.</p>
   </div>
-{% else %}
+{%- else %}
   <div id="metasearch">
     <h2>Search</h2>
-    {% if form.tags.choices %}
+    {%- if form.tags.choices %}
     <form method="post" id="search">
       {%- if form.errors -%}
       <div>
         <span>Errors were found in your input:</span>
-        {% for field, errors in form.errors.iteritems() %}
+        {%- for field, errors in form.errors.iteritems() %}
         <div class="alert alert-error">
             {{ form[field].label }}: {{ ', '.join(errors) }}
         </div>
-        {% endfor %}
+        {%- endfor %}
       </div>
       {%- endif %}
       <div>
-        {{ form.search_term.label }}
         {{ form.search_term(size=48) }}
-      </div>
-      <div>
-        {{ form.tags.label }}
-        {{ form.tags }}
-      </div>
-      <div>
         {{ form.submit() }}
+      </div>
+      <div>
+        <span>Search in tags</span>
+        {{ form.tags }}
       </div>
       {{ form.type }}
       {{ form.csrf_token }}
     </form>
-    {% else %}
+    {%- else %}
     <span>Search is not availale for this bucket</span>
-    {% endif %}
+    {%- endif %}
   </div>
   <div id="status">
     <h2>Status</h2>
@@ -51,22 +45,39 @@
       <li>Available buckets: {{ config['BUCKET_LIST']|length }}</li>
       <li>Search enabled buckets
         <ul>
-          {% for bucket in config['SEARCHABLE_BUCKETS'] %}
+          {%- for bucket in config['SEARCHABLE_BUCKETS'] %}
           <li>{{ bucket }}</li>
-          {% endfor %}
+          {%- endfor %}
         </ul>
       </li>
     </ul>
   </div>
   <div id="search_results">
     <h2>Search results</h2>
-    <div>
-    {% if search_results %}
-    <pre>
-    {{ search_results }}
-    </pre>
-    {% endif %}
+    <div id="results_wrapper">
+    {%- if search_results %}
+      <table id="results">
+        <tr>
+          <th></th>
+          <th>File identifier</th>
+          {%- for header in config['SEARCH_TAGS'] %}
+          <th class="tag_{{ header }}">{{ header }}</th>
+          {%- endfor %}
+        </tr>
+        {%- set row_classes = ['item'] + config['SEARCH_TAGS'] %}
+        {%- for row in search_results %}
+        <tr class={{ loop.cycle('rs1', 'rs1', 'rs2', 'rs2') }}>
+          <td class="download">Download</td>
+          {% for col in row %}
+          <td class="tag_{{ row_classes[loop.index0] }}">{{ col if col }}</td>
+          {% endfor %}
+        </tr>
+        {%- endfor %}
+      </table>
+    {%- else %}
+      <span>No search reasults</span>
+    {%- endif %}
     </div>
   </div>
-{% endif %}
-{% endblock %}
+{%- endif %}
+{%- endblock %}

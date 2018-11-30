@@ -1,9 +1,9 @@
-{%
+{%-
   set navigation_menu = [
     ('Home', 'home', url_for('home')),
     ('Configuration', 'config', url_for('configuration'))
-  ] %}
-{% set active_nav_item = active_page|default('home') %}
+  ] -%}
+{%- set active_nav_item = active_page|default('home') -%}
 <!DOCTYPE html>
 <html>
   <head>
@@ -33,26 +33,29 @@
   <body>
     <nav>
       <h1>ECS Metadata Search</h1>
-      <ul id="navigation">
-        {% for caption, index, href in navigation_menu %}
-        <li class="{% if index == active_page %}active{% endif %}"><a href="{{ href|e }}">{{ caption|e }}</a></li>
-        {% endfor %}
-      </ul>
+      <div>
+        <ul id="navigation">
+          {%- for caption, index, href in navigation_menu %}
+          <li class="{% if index == active_page %}active{% endif %}"><a href="{{ href|e }}">{{ caption|e }}</a></li>
+          {%- endfor %}
+        </ul>
+      </div>
+      <div style="clear:both"></div>
     </nav>
     <section class="content">
       <header>
-        {% block header %}{% endblock %}
+        {%- block header %}{%- endblock %}
       </header>
-      {% with messages = get_flashed_messages(with_categories=true) %}
-      {% if messages %}
+      {%- with messages = get_flashed_messages(with_categories=true) %}
+      {%- if messages %}
       <ul class="flash">
-        {% for category, message in messages %}
+        {% for category, message in messages -%}
         <li class="{{ category }}">{{ message }}</li>
-        {% endfor %}
+        {% endfor -%}
       </ul>
-      {% endif %}
-      {% endwith %}
-      {% block content %}{% endblock %}
+      {%- endif %}
+      {%- endwith %}
+      {%- block content %}{%- endblock %}
     </section>
   </body>
 </html>

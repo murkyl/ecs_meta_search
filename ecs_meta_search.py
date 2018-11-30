@@ -42,8 +42,12 @@ if (sys.version_info.major == 2 and sys.version_info.minor < 9):
   print("Python version is < 2.7.9. You will get warnings about SNI (Server Name Indication) when usig HTTPS connections")
 
 
+#
 # Global variables
+#
+META_TAG_PREFIX = 'x-amz-meta-'
 # Setup logging here before the Flask app is instantiated
+#
 logging.config.dictConfig({
   'version': 1,
   'formatters': {'default': {
@@ -61,13 +65,18 @@ logging.config.dictConfig({
 })
 
 
-META_TAG_PREFIX = 'x-amz-meta-'
+#
+# Instantiate Flask app and configure with defaults/environment and then config file
+#
 app = Flask(__name__, instance_relative_config=True)
 app.config.from_object('config.Config')
 app.config.from_pyfile('application.cfg', silent=True)
 app.config.from_envvar('EMC_META_SEARCH_CONFIG', silent=True)
 
 
+#
+# Code to generate web forms and custom form widgets
+#
 class VisiblePasswordField(PasswordField):
   widget = PasswordInput(hide_value= False)
 
@@ -77,10 +86,10 @@ class MultiCheckboxField(SelectMultipleField):
     
 class ConnectForm(FlaskForm):
   ecs_username = StringField('ECS Username', validators=[DataRequired()], default=lambda: app.config['ACCESS_ID'])
-  if app.config['VISIBLE_PASSWORD']:
-    ecs_password = VisiblePasswordField('ECS Password', validators=[DataRequired()], default=lambda: app.config['ACCESS_KEY'])
-  else:
+  if app.config['HIDE_PASSWORD']:
     ecs_password = PasswordField('ECS Password', validators=[DataRequired()])
+  else:
+    ecs_password = VisiblePasswordField('ECS Password', validators=[DataRequired()], default=lambda: app.config['ACCESS_KEY'])
   ecs_endpoint = URLField('ECS Endpoint', validators=[DataRequired()], default=lambda: app.config['ENDPOINT'])
   ecs_replication_group = StringField('ECS Replication Group', validators=[DataRequired()], default=lambda: app.config['TOKEN'])
   type = HiddenField('type', default='connect')
@@ -97,6 +106,9 @@ class SearchForm(FlaskForm):
   type = HiddenField('type', default='search')
   submit = SubmitField('Search')
 
+#
+# Helper methods
+#
 def change_bucket(client, selected_bucket):
   app.config.update(
     SEARCH_ENABLED = False,
@@ -166,6 +178,39 @@ def connect_ecs(bucket=None):
       app.logger.exception(e)
       app.config['CLIENT'] = None
   
+def do_search(client, form):
+  search_term = form.get('search_term')
+  search_tags = form.getlist('tags')
+  terms = ['%s%s==%s'%(META_TAG_PREFIX, x, search_term) for x in search_tags]
+  app.logger.debug("Term list: %s"%terms)
+  query_string = ' or '.join(terms)
+  app.logger.debug("Full unescaped search string: %s"%query_string)
+  escaped_query = urllib.quote(query_string, '=')
+  app.logger.debug("Escaped search string: %s"%escaped_query)
+  # Run actual search
+  resp = client.get(urljoin(app.config['ENDPOINT'], app.config['BUCKET']), params='query=%s'%escaped_query)
+  resp_dict = xmltodict.parse(resp.content)
+  return(resp_dict)
+
+def search_response_to_table(search_resp):
+  table = []
+  if search_resp['ObjectMatches'] is None:
+    return table
+  for result in search_resp['ObjectMatches']['object']:
+    row = []
+    row.append(result['objectName'])
+    meta_map = {}
+    for entry in result['queryMds']['mdMap']['entry']:
+      meta_map[entry['key']] = entry['value']
+    app.logger.debug('MAP: %s'%meta_map)
+    for tag in app.config['SEARCH_TAGS']:
+      row.append(meta_map.get('%s%s'%(META_TAG_PREFIX, tag), None))
+    table.append(row)
+  return table
+
+#
+# Flask handlers
+#
 @app.route("/", methods=['GET', 'POST'])
 def home():
   errors = None
@@ -182,31 +227,21 @@ def home():
   if request.method == 'POST':
     if request.form.get('type') == 'search':
       if search_form.validate_on_submit():
-        search_tags = request.form.getlist('tags')
-        search_term = request.form.get('search_term')
-        terms = ['%s%s==%s'%(META_TAG_PREFIX, x, search_term) for x in search_tags]
-        app.logger.debug("Term list: %s"%terms)
-        query_string = ' or '.join(terms)
-        app.logger.debug("Full unescaped search string: %s"%query_string)
-        escaped_query = urllib.quote(query_string, '=')
-        app.logger.debug("Escaped search string: %s"%escaped_query)
-        # Run actual search
-        resp = client.get(urljoin(app.config['ENDPOINT'], app.config['BUCKET']), params='query=%s'%escaped_query)
-        resp_dict = xmltodict.parse(resp.content)
+        resp_dict = do_search(client, request.form)
         if 'Error' in resp_dict:
           app.logger.error('URL used in invalid GET request: %s'%resp.url)
           err_string = json.dumps(resp_dict, indent=4, sort_keys=True)
           flash('Invalid search request:\n%s'%err_string, 'error')
           flash('URL used in invalid search request:\n%s'%resp.url, 'error')
         else:
-          resp_dict = xmltodict.parse(resp.content)
           results = resp_dict['BucketQueryResult']
-          search_results = json.dumps(results, indent=4, sort_keys=True)
+          search_results = search_response_to_table(results)
+          #search_results = json.dumps(results, indent=4, sort_keys=True)
   elif request.method == 'GET':
+    # Just render the home page normally for a GET
     pass
   else:
     app.logger.error('Unhandled request method received: %s'%request.method)
-      
   return render_template('home.html', errors=errors, form=search_form, search_results=search_results)
   
 @app.route("/config", methods=['GET', 'POST'])
@@ -216,10 +251,14 @@ def configuration():
   client = app.config['CLIENT']
   connect_form = ConnectForm()
   bucket_form = BucketForm()
+  
   app.logger.info('Status of client: %s'%client)
   app.logger.debug('Request args: %s'%request.args)
-
   if request.method == 'POST':
+    # The configuration page is a 2 phase form.
+    # The first phase performs a connection to the ECS instance
+    # The second phase allows the user to select a bucket from
+    # the instance to use for searches
     if request.form.get('type') == 'connect':
       if connect_form.validate_on_submit():
         app.config.update(
@@ -232,9 +271,12 @@ def configuration():
         # Check if client is valid or the connect succeeded. If it did not, render an error
         if client:
           return redirect("/config")
-        errors = ['Could not connect using provided ECS credentials. Please check the values and try again.']
         flash('Could not connect using provided ECS credentials. Please check the values and try again.', 'error')
     elif request.form.get('type') == 'bucket':
+      # Manually set the choices after the form is created.
+      # This is required to populate dynamic forms.
+      # The format of the choices variable is a list of tuples (Name, Value)
+      # The choices variable is also used to validate the form input
       bucket_form.bucket.choices = [(x, x) for x in sorted(app.config['BUCKET_MAP'].keys())]
       if bucket_form.validate_on_submit():
         app.config['BUCKET'] = request.form.get('bucket')
@@ -276,12 +318,18 @@ def debug():
     resp_dict = xmltodict.parse(resp.content)
     data['meta_search_status'] = json.dumps(resp_dict, indent=4, sort_keys=True)
     # Command to search the bucket for an object with a meta tag of showname and a value of team
-    resp = client.get(urljoin(app.config['ENDPOINT'], app.config['BUCKET']), params={'query': 'x-amz-meta-showname==team'})
+    resp = client.get(urljoin(app.config['ENDPOINT'], app.config['BUCKET']), params="query=x-amz-meta-showname=='the talwarts'")
     resp_dict = xmltodict.parse(resp.content)
     data['search_url'] = resp.url
     data['search_result'] = json.dumps(resp_dict, indent=4, sort_keys=True)
   return render_template('debug.html', errors=errors, data=data)
+
+#
+# App bootstrap
+#
+def main():
+  connect_ecs(app.config['BUCKET'])
+  app.run(debug=app.config['DEBUG'])
   
 if __name__ == "__main__":
-  connect_ecs(app.config['BUCKET'])
-  app.run(debug=True)
+  main()

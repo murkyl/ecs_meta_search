@@ -4,6 +4,7 @@ import inspect
 import json
 import urllib
 import datetime
+import shlex
 import logging
 import logging.config
 
@@ -184,9 +185,21 @@ def connect_ecs(bucket=None):
       app.config['CLIENT'] = None
   
 def do_search(client, form):
+  terms = []
   search_term = form.get('search_term')
+  lex_terms = shlex.split(search_term)
+  app.logger.debug("Split search terms: %s"%lex_terms)
   search_tags = form.getlist('tags')
-  terms = ['%s%s==%s'%(META_TAG_PREFIX, x, search_term) for x in search_tags]
+  # ECS violates standard URL encoding. When doing a metadata search, it wants
+  # to see the actual space character. However it must be quoted to work
+  # properly. We take each of the parsed lexical tokens and create an OR list
+  # with all the selected tags to create a large search list.
+  # e.g. Tags T1 T2 and T3 with parsed search terms S1 and S2
+  # This will result in a search string of:
+  # T1==S1 or T1==S2 or T2==S1 or T2==S2 or T3==S1 or T3==S2
+  for lex in lex_terms:
+    for tag in search_tags:
+      terms.append('%s%s==%s'%(META_TAG_PREFIX, tag, "'%s'"%lex))
   app.logger.debug("Term list: %s"%terms)
   query_string = ' or '.join(terms)
   app.logger.debug("Full unescaped search string: %s"%query_string)

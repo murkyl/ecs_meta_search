@@ -60,7 +60,6 @@ def get_signed_url(endpoint, bucket, obj, id, key, type='s3', expire=3600):
     obj = quote_plus(obj)
   else:
     obg = quote(obj, '/')
-  print("*** URL FORMAT: %s"%url_format)
   # Create full signed URL
   signed_url = url_format%{
       'prot': prot,
@@ -72,5 +71,4 @@ def get_signed_url(endpoint, bucket, obj, id, key, type='s3', expire=3600):
       'expires': expiry_ts,
       'sig': sig
   }
-  print("*** RETURNING: %s"%signed_url)
   return signed_url

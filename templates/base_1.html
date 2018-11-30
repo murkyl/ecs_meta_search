@@ -42,7 +42,6 @@
       </div>
       <div style="clear:both"></div>
     </nav>
-    <div id="logo"><img src="{{ url_for('static', filename='logo.png') }}" alt="Company Logo"></div>
     <section class="content">
       <header>
         {%- block header %}{%- endblock %}
@@ -58,5 +57,9 @@
       {%- endwith %}
       {%- block content %}{%- endblock %}
     </section>
+    <footer>
+      <div id="logo"><img src="{{ url_for('static', filename='logo.png') }}" alt="Company Logo"></div>
+      <span>(C) Copyright notice could be put here</span>
+    </footer>
   </body>
 </html>

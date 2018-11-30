@@ -14,8 +14,32 @@ nav h1, header h1 {
 nav h1 {
   margin: 0;
   padding: 0.5em;
-  background-color: rgba(77, 99, 135, 0.87);
+  background-color: rgb(77, 99, 135);
   color: white;
+}
+
+section {
+  margin-bottom: 120px;
+}
+
+footer {
+  color: white;
+  text-align: center;
+  background-color: rgb(77, 99, 135);
+  height: 120px;
+  width: 100%;
+  margin: 20px 0 0 0;
+  padding: 0;
+  position: fixed ! important;
+  bottom: 0px;
+  overflow: hidden;
+  z-index: 100;
+}
+
+footer span {
+  display: inline-block;
+  vertical-align: middle;
+  line-height: 120px;
 }
 
 table, th, td {
@@ -95,8 +119,8 @@ ul.indent1 li{
 #logo {
   float: right;
   position: absolute;
-  right: .1em;
-  margin-top: .1em;
+  right: 10px;
+  margin: 10px 0 10px 10px;
 }
 
 #logo img {

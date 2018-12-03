@@ -132,6 +132,7 @@ def change_bucket(client, selected_bucket):
     resp = client.get(urljoin(app.config['ENDPOINT'], bucket), params='searchmetadata')
     if resp.content:
       resp_dict = xmltodict.parse(resp.content)
+      # An error key is returned if a bucket does not have metadata search enabled.
       if 'Error' in resp_dict:
         continue
       search_enabled = resp_dict['MetadataSearchList']['MetadataSearchEnabled'] == 'true'
@@ -260,7 +261,7 @@ def home():
       if search_form.validate_on_submit():
         resp_dict = do_search(client, request.form)
         if 'Error' in resp_dict:
-          app.logger.error('URL used in invalid GET request: %s'%resp.url)
+          app.logger.error('URL used in invalid search request: %s'%resp.url)
           err_string = json.dumps(resp_dict, indent=4, sort_keys=True)
           flash('Invalid search request:\n%s'%err_string, 'error')
           flash('URL used in invalid search request:\n%s'%resp.url, 'error')
@@ -366,7 +367,11 @@ def debug():
 #
 def main():
   connect_ecs(app.config['BUCKET'])
-  app.run(debug=app.config['DEBUG'])
+  app.run(
+      debug=app.config['DEBUG'],
+      host=app.config['LISTEN_IP'],
+      port=app.config['LISTEN_PORT'],
+  )
   
 if __name__ == "__main__":
   main()

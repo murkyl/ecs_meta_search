@@ -143,7 +143,7 @@ def change_bucket(client, selected_bucket):
           app.config['SEARCH_ENABLED'] = search_enabled
           app.config['SEARCH_TAGS'] = [x['Name'].replace(META_TAG_PREFIX, '') for x in resp_dict['MetadataSearchList']['IndexableKeys']['Key']]
 
-def connect_ecs(bucket=None):
+def connect_ecs(bucket=None, skip_flash=False):
   # Reset our connection and bucket variables
   app.config.update(
     CLIENT = None,
@@ -178,9 +178,9 @@ def connect_ecs(bucket=None):
           app.config['BUCKET_MAP'][bucket['Name']] = bucket
         if app.config['BUCKET'] and app.config['BUCKET'] not in app.config['BUCKET_MAP'].keys():
           app.config['BUCKET'] = None
-          flash('Invalid bucket name for ECS endpoint: %s'%app.config['ENDPOINT'], 'error')
+          if not skip_flash:
+            flash('Invalid bucket name for ECS endpoint: %s'%app.config['ENDPOINT'], 'error')
         change_bucket(client, app.config['BUCKET'])
-
     except Exception as e:
       app.logger.exception(e)
       app.config['CLIENT'] = None
@@ -366,7 +366,7 @@ def debug():
 # App bootstrap
 #
 def main():
-  connect_ecs(app.config['BUCKET'])
+  connect_ecs(app.config['BUCKET'], skip_flash=True)
   app.run(
       debug=app.config['DEBUG'],
       host=app.config['LISTEN_IP'],

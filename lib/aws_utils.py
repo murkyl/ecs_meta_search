@@ -3,8 +3,10 @@ import datetime
 import base64
 import hmac
 import hashlib
-from urllib import quote_plus
-from urllib import quote
+try:
+    from urllib import quote_plus, quote
+except:
+    from urllib.parse import quote_plus, quote
 
 S3_SIGNED_URL_FORMAT = '%(prot)s://%(bucket)s/%(endpoint)s/%(obj)s?AWSAccessKeyId=%(id)s&Expires=%(expires)d&Signature=%(sig)s'
 ECS_SIGNED_URL_FORMAT = '%(prot)s://%(endpoint)s/%(bucket)s/%(obj)s?AWSAccessKeyId=%(id)s&Expires=%(expires)d&Signature=%(sig)s'

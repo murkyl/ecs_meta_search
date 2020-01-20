@@ -1,3 +1,5 @@
+#!/usr/bin/env python
+# -*- coding: utf8 -*-
 import os
 
 class Config(object):
@@ -13,6 +15,6 @@ class Config(object):
   BUCKET = os.environ.get('ECS_META_SEARCH_BUCKET') or None
   URL_TYPE = 'ecs'
   URL_EXPIRATION = 3600
-  LISTEN_IP = os.environ.get('ECS_META_SEARCH_LISTEN_IP') or '127.0.0.1'
+  LISTEN_IP = os.environ.get('ECS_META_SEARCH_LISTEN_IP') or '0.0.0.0'
   LISTEN_PORT = os.environ.get('ECS_META_SEARCH_LISTEN_PORT') or 5000
   

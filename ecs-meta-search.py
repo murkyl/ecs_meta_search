@@ -1,3 +1,5 @@
+#!/usr/bin/env python
+# -*- coding: utf8 -*-
 import sys
 import os
 import inspect
@@ -46,14 +48,10 @@ from aws_utils import get_signed_url
 #   the responses. Right now we assume everything parses correctly and the
 #   XML response is well formed. This is a bad assumption to make.
 
-
-if (sys.version_info.major == 2 and sys.version_info.minor < 9):
-  print("Python version is < 2.7.9. You will get warnings about SNI (Server Name Indication) when usig HTTPS connections")
-
-
 #
 # Global variables
 #
+APP_VERSION = '1.0'
 META_TAG_PREFIX = 'x-amz-meta-'
 # Setup logging here before the Flask app is instantiated
 #
@@ -72,6 +70,13 @@ logging.config.dictConfig({
     'handlers': ['wsgi']
   }
 })
+
+
+if '--version' in sys.argv:
+  print('ecs_meta_search v%s'%APP_VERSION)
+  sys.exit(1)
+if (sys.version_info.major == 2 and sys.version_info.minor < 9):
+  print("Python version is < 2.7.9. You will get warnings about SNI (Server Name Indication) when using HTTPS connections")
 
 
 #

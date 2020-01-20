@@ -1,0 +1,18 @@
+kind: ConfigMap
+apiVersion: v1
+metadata:
+  name: ecs-meta-search-configmap
+data:
+  # ACCESS_ID: Use your user name or access ID
+  ECS_META_SEARCH_ACCESS_ID: "131701420476682255@ecstestdrive.emc.com"
+  # ACCESS_KEY: Use your secret/password
+  ECS_META_SEARCH_ACCESS_KEY: "dDp8MeNm1M5NiwkSs3gN+OhUu16VsetoWKOEQywi"
+  # TOKEN: If you have an ECS replication group string you can use that or leave as a .
+  ECS_META_SEARCH_TOKEN: "urn:storageos:ReplicationGroupInfo:104b3728-fba1-41b3-8055-4592348f1d24:global"
+  # ENDPOINT: URL of your ECS. To use ECS Test Drive use the URL: https://object.ecstestdrive.com>
+  ECS_META_SEARCH_ENDPOINT: "https://object.ecstestdrive.com"
+  # BUCKET: Name of the bucket that has Metadata search enabled. Leave blank to configure via WebUI
+  ECS_META_SEARCH_BUCKET: "stockfootage"
+  # Set to "True" to enable debug
+  ECS_META_SEARCH_DEBUG: "False"
+  FLASK_ENV: "development"

@@ -1,0 +1,37 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: ecs-meta-search-service
+spec:
+  selector:
+    app: ecs-meta-search
+  ports:
+  - protocol: "TCP"
+    port: 6000
+    targetPort: 5000
+  type: LoadBalancer
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ecs-meta-search
+spec:
+  selector:
+    matchLabels:
+      app: ecs-meta-search
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: ecs-meta-search
+    spec:
+      containers:
+      - name: ecs-meta-search
+        image: ecs-meta-search:1.17
+        imagePullPolicy: Never
+        ports:
+        - containerPort: 5000
+        envFrom:
+          - configMapRef:
+              name: ecs-meta-search-configmap

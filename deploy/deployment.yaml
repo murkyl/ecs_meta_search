@@ -29,7 +29,6 @@ spec:
       containers:
       - name: ecs-meta-search
         image: ecs-meta-search:1.17
-        imagePullPolicy: Never
         ports:
         - containerPort: 5000
         envFrom:
